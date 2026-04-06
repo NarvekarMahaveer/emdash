@@ -6,8 +6,8 @@
  * - Tag input for flat taxonomies (tags)
  */
 
-import { Input, Label } from "@cloudflare/kumo";
-import { X } from "@phosphor-icons/react";
+import { Input, Label, Loader, Toast } from "@cloudflare/kumo";
+import { Check, X } from "@phosphor-icons/react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import * as React from "react";
 
@@ -235,6 +235,7 @@ function TaxonomySection({
 	onChange?: (termIds: string[]) => void;
 }) {
 	const queryClient = useQueryClient();
+	const toastManager = Toast.useToastManager();
 
 	const { data: terms = [] } = useQuery({
 		queryKey: ["taxonomy-terms", taxonomy.name],
@@ -250,15 +251,38 @@ function TaxonomySection({
 		enabled: !!entryId,
 	});
 
+	const [saveStatus, setSaveStatus] = React.useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+
 	const saveMutation = useMutation({
 		mutationFn: (termIds: string[]) => {
 			if (!entryId) throw new Error("No entry ID");
 			return setEntryTerms(collection, entryId, taxonomy.name, termIds);
 		},
+		onMutate: () => {
+			setSaveStatus('saving');
+		},
 		onSuccess: () => {
 			void queryClient.invalidateQueries({
 				queryKey: ["entry-terms", collection, entryId, taxonomy.name],
 			});
+			setSaveStatus('saved');
+			toastManager.add({
+				title: "Taxonomy updated",
+				description: `${taxonomy.label} has been saved`,
+				type: "success"
+			});
+			// Reset to idle after showing "Saved" for 2 seconds
+			setTimeout(setSaveStatus, 2000, 'idle');
+		},
+		onError: (error: Error) => {
+			setSaveStatus('error');
+			toastManager.add({
+				title: "Failed to save taxonomy",
+				description: error.message,
+				type: "error"
+			});
+			// Reset error status after 3 seconds
+			setTimeout(setSaveStatus, 3000, 'idle');
 		},
 	});
 
@@ -298,7 +322,31 @@ function TaxonomySection({
 
 	return (
 		<div className="space-y-2">
-			<Label className="text-sm font-medium">{taxonomy.label}</Label>
+			<div className="flex items-center justify-between">
+				<Label className="text-sm font-medium">{taxonomy.label}</Label>
+				{saveStatus !== 'idle' && (
+					<div className="flex items-center gap-1 text-xs">
+						{saveStatus === 'saving' && (
+							<>
+								<Loader className="w-3 h-3" />
+								<span className="text-kumo-subtle">Saving...</span>
+							</>
+						)}
+						{saveStatus === 'saved' && (
+							<>
+								<Check className="w-3 h-3 text-green-600" />
+								<span className="text-green-600">Saved</span>
+							</>
+						)}
+						{saveStatus === 'error' && (
+							<>
+								<X className="w-3 h-3 text-red-600" />
+								<span className="text-red-600">Error</span>
+							</>
+						)}
+					</div>
+				)}
+			</div>
 
 			{terms.length === 0 ? (
 				<p className="text-sm text-kumo-subtle">No {taxonomy.label.toLowerCase()} available.</p>
